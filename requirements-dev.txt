@@ -1,0 +1,5 @@
+-r requirements.txt
+pyinstaller
+pytest
+ruff
+black
