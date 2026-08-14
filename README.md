@@ -11,7 +11,15 @@
 
 Every other terminal coding agent worth using assumes you're paying per token. OpenCodingAgent doesn't: it's wired to [NVIDIA's build.nvidia.com API](https://build.nvidia.com), which serves DeepSeek V4 (and other open-weight models) at no cost, no credit card required. That's a real tradeoff — a free, smaller model is less reliable than a frontier paid one — so the whole design leans into managing that: terse system prompt, targeted `edit_file` over blind `write_file` overwrites, a hard cap on tool-call round trips, and automatic conversation compaction so a long session doesn't blow through a smaller model's context window. See [Known limitations](#known-limitations-v1) for what that tradeoff actually costs you.
 
-## Quick start
+## Quick start (Windows, double-click)
+
+`OpenCodingAgent.exe` is checked into the repo root — grab it from `git clone` or the **[Releases page](https://github.com/Hamzah-Muhammad/OpenCodingAgent/releases/latest)**, no Python install needed. It's a single self-contained file:
+
+1. Get a free key at [build.nvidia.com](https://build.nvidia.com) (no credit card).
+2. Set it once: `setx NVIDIA_API_KEY "your-key-here"` (new terminal windows only) — or just create a `.env` file with `NVIDIA_API_KEY=your-key-here` next to the exe.
+3. Copy `OpenCodingAgent.exe` into whatever project folder you want it to work on, and double-click it. Its file/shell/git tools are jailed to the folder it's run from.
+
+## Quick start (from source)
 
 ```bash
 git clone https://github.com/Hamzah-Muhammad/OpenCodingAgent.git
@@ -72,6 +80,16 @@ python -m venv .venv
 
 CLI flags (`--model`, `--api-key`, `--root`) work for direct `python -m open_coding_agent` use, or set them in `.env` (`NVIDIA_API_KEY`, `OPENCODINGAGENT_MODEL`).
 
+## Rebuilding OpenCodingAgent.exe
+
+```bash
+python -m venv .venv
+.venv\Scripts\pip install -r requirements-dev.txt
+.venv\Scripts\python -m PyInstaller OpenCodingAgent.spec --noconfirm
+```
+
+Onefile build (`--add-data` bundles `SYSTEM_PROMPT.md` into the archive — `memory.py` knows to look for it at `sys._MEIPASS` when frozen). Output: `dist/OpenCodingAgent.exe`. The root-level `OpenCodingAgent.exe` is rebuilt and re-committed whenever app code changes, so it always matches the latest source.
+
 ## Architecture
 
 ```mermaid
@@ -118,6 +136,8 @@ open_coding_agent/
     schemas.py                       Tool-call JSON schemas + safe/risky classification
 tests/                 pytest suite -- fs, search, safety, compaction, git/PR guardrails
                         (against real local git repos, not mocks), the NVIDIA client
+OpenCodingAgent.spec    PyInstaller onefile packaging spec
+OpenCodingAgent.exe     Prebuilt double-click binary, kept in sync with source
 ```
 
 ## Testing
