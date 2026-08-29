@@ -10,8 +10,8 @@ from pathlib import Path
 
 ROOT = Path(SPECPATH)  # noqa: F821 -- injected by PyInstaller
 
-VERSION = "0.1.0"
-FILEVERS = (0, 1, 0, 0)
+VERSION = "0.1.1"
+FILEVERS = (0, 1, 1, 0)
 
 VERSION_INFO_PATH = ROOT / "version_info.txt"
 VERSION_INFO_PATH.write_text(
@@ -33,7 +33,7 @@ VERSION_INFO_PATH.write_text(
     "          '040904B0',\n"
     "          [\n"
     "            StringStruct('CompanyName', 'Hamzah Muhammad (@Humzeeny)'),\n"
-    "            StringStruct('FileDescription', 'OpenCodingAgent — a free coding agent for your terminal'),\n"
+    "            StringStruct('FileDescription', 'OpenCodingAgent - a free coding agent for your terminal'),\n"
     f"            StringStruct('FileVersion', {VERSION!r}),\n"
     "            StringStruct('InternalName', 'OpenCodingAgent'),\n"
     "            StringStruct('OriginalFilename', 'OpenCodingAgent.exe'),\n"
@@ -76,6 +76,7 @@ exe = EXE(  # noqa: F821
     strip=False,
     upx=False,
     console=True,
+    icon=str(ROOT / "OpenCodingAgent.ico"),
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

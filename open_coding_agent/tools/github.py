@@ -8,11 +8,12 @@ with a token to manage.
 
 import subprocess
 
-from open_coding_agent.tools.fs import ToolError
+from open_coding_agent.tools.fs import ToolError, assert_allowed_root
 from open_coding_agent.tools.git import _PROTECTED_BRANCHES, _current_branch, _run_git
 
 
 def _run_gh(root: str, args: list[str]) -> subprocess.CompletedProcess:
+    assert_allowed_root(root)
     try:
         return subprocess.run(["gh", *args], cwd=root, capture_output=True, text=True, timeout=30)
     except FileNotFoundError as e:

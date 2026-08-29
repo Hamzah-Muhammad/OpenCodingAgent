@@ -8,7 +8,7 @@ import fnmatch
 import os
 import re
 
-from open_coding_agent.tools.fs import ToolError, _resolve
+from open_coding_agent.tools.fs import ToolError, _resolve, is_secret_path
 
 MAX_RESULTS = 50
 MAX_FILE_BYTES = 1_000_000  # skip anything this big -- almost certainly not source
@@ -38,7 +38,7 @@ def search_files(
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
 
         for name in sorted(filenames):
-            if not fnmatch.fnmatch(name, glob):
+            if not fnmatch.fnmatch(name, glob) or is_secret_path(name):
                 continue
             full = os.path.join(dirpath, name)
             # Normalize to forward slashes so results are consistent across

@@ -16,13 +16,36 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 
+THINKING_MODES = ("off", "on", "auto")
+
+
 class NvidiaError(Exception):
     pass
 
 
+def thinking_extra_body(thinking: str) -> Optional[dict]:
+    """DeepSeek V4 on NVIDIA is a reasoning model. By default every call spends
+    its whole max_tokens budget on hidden reasoning_content before the first
+    visible token: in a live run a one-line answer took three minutes and often
+    came back empty with finish_reason "length". The chat template exposes a
+    `thinking` switch through chat_template_kwargs, which the openai SDK passes
+    through untouched via extra_body.
+
+      off  -> thinking=false  (default: fast, which is what a tool loop needs)
+      on   -> thinking=true   (slower, for a genuinely hard problem)
+      auto -> send nothing    (for a model whose template has no such switch)
+    """
+    if thinking not in THINKING_MODES:
+        raise ValueError(f"thinking must be one of {THINKING_MODES}, got {thinking!r}")
+    if thinking == "auto":
+        return None
+    return {"chat_template_kwargs": {"thinking": thinking == "on"}}
+
+
 class NvidiaClient:
-    def __init__(self, api_key: str, timeout: float = 90.0):
+    def __init__(self, api_key: str, timeout: float = 90.0, thinking: str = "off"):
         self._client = OpenAI(base_url=BASE_URL, api_key=api_key, timeout=timeout)
+        self._extra_body = thinking_extra_body(thinking)
 
     def turn(
         self,
@@ -42,6 +65,8 @@ class NvidiaClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice
+        if self._extra_body:
+            kwargs["extra_body"] = self._extra_body
 
         try:
             response = self._client.chat.completions.create(**kwargs)
@@ -81,6 +106,8 @@ class NvidiaClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice
+        if self._extra_body:
+            kwargs["extra_body"] = self._extra_body
 
         text_parts = []
         tool_calls_by_index: dict[int, dict] = {}

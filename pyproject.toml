@@ -1,6 +1,6 @@
 [project]
 name = "opencodingagent"
-version = "0.1.0"
+version = "0.1.1"
 description = "A free coding agent for your terminal, running entirely on free LLM APIs"
 requires-python = ">=3.10"
 dependencies = ["openai", "rich", "python-dotenv"]

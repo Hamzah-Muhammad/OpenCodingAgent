@@ -1,6 +1,6 @@
 import subprocess
 
-from open_coding_agent.tools.fs import ToolError
+from open_coding_agent.tools.fs import ToolError, assert_allowed_root
 
 # OpenCodingAgent never pushes directly to these -- hard-coded, not
 # user-configurable from a tool call. Push to a feature branch and open a
@@ -9,6 +9,7 @@ _PROTECTED_BRANCHES = {"main", "master"}
 
 
 def _run_git(root: str, args: list[str]) -> subprocess.CompletedProcess:
+    assert_allowed_root(root)
     try:
         return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=30)
     except FileNotFoundError as e:
