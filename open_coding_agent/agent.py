@@ -58,6 +58,22 @@ def _accumulate_usage(session_usage: dict, usage: dict | None) -> None:
     session_usage["output_tokens"] += usage.get("output_tokens") or 0
 
 
+def _rollback_to_last_user(messages: list[dict]) -> None:
+    """Discard everything back to and including the most recent user turn.
+
+    Every OpenAI-compatible provider rejects a history that contains an
+    assistant tool_calls message with no matching tool results. On a failure
+    mid-loop, popping only the last entry is right on turn 1 (it IS the user
+    message) but wrong on turn 2+, where the last entry is a tool result and
+    popping it orphans the assistant tool_calls message before it: every later
+    request then fails with a 400 and the session is effectively dead.
+    """
+    while messages and messages[-1]["role"] != "user":
+        messages.pop()
+    if messages and messages[-1]["role"] == "user":
+        messages.pop()
+
+
 def _run_tool_loop(
     console: Console,
     cfg: Config,
@@ -88,17 +104,30 @@ def _run_tool_loop(
             result = ui.stream_assistant(console, client, messages, TOOL_SCHEMAS, cfg.model)
         except NvidiaError as e:
             ui.print_error(console, str(e))
-            messages.pop()  # don't leave a dangling user turn the model never saw
+            _rollback_to_last_user(messages)
             return
 
         if result is None:  # shouldn't happen -- the stream always ends in "done"
             ui.print_error(console, "Stream ended without a response.")
-            messages.pop()
+            _rollback_to_last_user(messages)
             return
 
         _accumulate_usage(session_usage, result.get("usage"))
 
         msg = result["message"]
+
+        # A response cut off by max_tokens in the middle of a tool call is
+        # unusable (the arguments JSON is incomplete) and appending it would
+        # leave a tool_calls message that never gets its results.
+        if result["finish_reason"] == "length" and msg.get("tool_calls"):
+            ui.print_error(
+                console,
+                "The model ran out of output tokens in the middle of a tool call; "
+                "discarding this turn. Ask for a smaller step.",
+            )
+            _rollback_to_last_user(messages)
+            return
+
         messages.append(
             {
                 "role": "assistant",
@@ -141,7 +170,7 @@ def _run_tool_loop(
 
 def run_session(cfg: Config):
     console = Console()
-    client = NvidiaClient(cfg.api_key)
+    client = NvidiaClient(cfg.api_key, thinking=cfg.thinking)
     auto = AutoApprove()
     messages: list[dict] = [{"role": "system", "content": load_system_prompt()}]
     session_usage = {"input_tokens": 0, "output_tokens": 0}
@@ -160,7 +189,12 @@ def run_session(cfg: Config):
         if user_input in ("/exit", "/quit"):
             break
         if user_input == "/help":
-            console.print("Commands: /model <name>  /exit")
+            console.print(
+                "Commands:\n"
+                "  /help           this list\n"
+                "  /model <name>   switch model for the rest of the session\n"
+                "  /exit           quit (also /quit, Ctrl+C, Ctrl+D)"
+            )
             continue
         if user_input.startswith("/model "):
             cfg.model = user_input.split(" ", 1)[1].strip()

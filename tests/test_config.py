@@ -19,11 +19,21 @@ def test_load_config_root_defaults_to_cwd(monkeypatch, tmp_path):
 
 
 def test_load_config_root_override(monkeypatch, tmp_path):
+    """--root points at a different sandbox, not at an arbitrary directory."""
     monkeypatch.setenv("NVIDIA_API_KEY", "key")
-    other = tmp_path / "other"
-    other.mkdir()
+    other = tmp_path.parent / "elsewhere" / config_module.ALLOWED_ROOT_NAME
+    other.mkdir(parents=True, exist_ok=True)
     cfg = config_module.load_config(_args(root=str(other)))
     assert cfg.root == str(other)
+
+
+def test_load_config_refuses_a_root_with_the_wrong_name(monkeypatch, tmp_path):
+    """The whole point of the sandbox: any other directory is refused."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "key")
+    wrong = tmp_path / "some-other-project"
+    wrong.mkdir()
+    with pytest.raises(SystemExit, match=config_module.ALLOWED_ROOT_NAME):
+        config_module.load_config(_args(root=str(wrong)))
 
 
 def test_load_config_raises_if_root_missing(monkeypatch, tmp_path):
