@@ -21,22 +21,32 @@ Every other terminal coding agent worth using assumes you're paying per token. O
 
 ## Quick start (from source)
 
-```bash
+Windows (PowerShell):
+
+```powershell
 git clone https://github.com/Hamzah-Muhammad/OpenCodingAgent.git
 cd OpenCodingAgent
 
 python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt      # Windows
-# source .venv/bin/activate && pip install -r requirements.txt   # macOS/Linux
-
-cp .env.example .env
-# edit .env: paste in a free key from https://build.nvidia.com
+.venv\Scripts\pip install -r requirements.txt
+Copy-Item .env.example .env      # then paste in a free key from https://build.nvidia.com
 ```
 
-Then run it from whatever repo you want it to work on:
+macOS / Linux:
 
 ```bash
-cd path\to\your\project
+git clone https://github.com/Hamzah-Muhammad/OpenCodingAgent.git
+cd OpenCodingAgent
+
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env             # then paste in a free key from https://build.nvidia.com
+```
+
+Then run it from whatever repo you want it to work on (with the venv active, or via its full path):
+
+```bash
+cd path/to/your/project
 python -m open_coding_agent
 ```
 
