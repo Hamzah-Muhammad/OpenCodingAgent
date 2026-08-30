@@ -7,6 +7,19 @@
 
 **A free coding agent for your terminal, on an open-weight model.** OpenCodingAgent reads/searches/writes/edits files, runs shell commands, and uses git in a real repo on your machine -- the same shape of tool as Claude Code or Aider -- but it's built specifically to run on **free, open-weight LLMs**, not a paid key. Point it at NVIDIA's free-tier DeepSeek V4 endpoint, clone this repo, and you have a working coding agent for $0, confined to one sandbox folder so it can never touch anything you didn't hand it.
 
+## What this project demonstrates
+
+This repo exists to show how I build agents and coding tools. A working agent is a model plus four things the harness gives it, and every one of them here is a deliberate, tested decision rather than a framework default:
+
+| Pillar | What it means in OpenCodingAgent | Where |
+|---|---|---|
+| **Tools** | 12 tools with tight JSON schemas, each classified `safe` (auto-runs) or `risky` (diff/command preview + `y`/`a`/`q`). Guardrails live *inside* the tool, not in the prompt: no branch/force parameter on `git_push`, refusal on `main`, sandbox-by-name and secrets refusal at the boundary, cross-platform path normalisation. Every tool failure comes back to the model as a readable result so it can adapt instead of crashing the session. | `tools/schemas.py`, `tools/*.py`, `safety.py`, `agent.py` |
+| **System prompt** | Short and model-aware: written for a free, smaller model and a narrow terminal (tool discipline, `edit_file` over overwrites, no re-reads, checkpoint before the turn cap, honest about what it is). Loaded once from a flat file and bundled into the exe; a tiered prompt was considered and rejected as unnecessary at this size, which is itself the point. | `SYSTEM_PROMPT.md`, `memory.py` |
+| **Context window** | Streaming with per-turn and per-session token accounting so the cost of every turn is visible. A 25-round-trip cap per message. Automatic compaction after 40 messages into a durable-facts summary that keeps the last 10 messages verbatim and never cuts between a tool call and its result. Tool output is bounded (shell 4,000 chars, search 50 hits, files over 1 MB skipped) and hidden reasoning is off by default so the output budget is not burned invisibly. | `compaction.py`, `ui.py`, `tools/shell.py`, `tools/search.py`, `nvidia_client.py` |
+| **Memory** | Three layers, each with one job: durable identity and rules (`SYSTEM_PROMPT.md`, cached for the session), the conversation itself (rolled back to the last user turn on any failure so it can never hold an orphaned tool call), and the compaction summary, which is the agent's long-session memory of decisions made, files touched, and what is still open. | `memory.py`, `agent.py`, `compaction.py` |
+
+The same four decisions are what separate a demo that calls an LLM from a tool you can hand a real repo to. The rest of this README is the operator's view of those decisions.
+
 ## Why free
 
 Every other terminal coding agent worth using assumes you're paying per token. OpenCodingAgent doesn't: it's wired to [NVIDIA's build.nvidia.com API](https://build.nvidia.com), which serves DeepSeek V4 (and other open-weight models) at no cost, no credit card required. That's a real tradeoff -- a free, smaller model is less reliable than a frontier paid one -- so the whole design leans into managing that: terse system prompt, targeted `edit_file` over blind `write_file` overwrites, a hard cap on tool-call round trips, and automatic conversation compaction so a long session doesn't blow through a smaller model's context window. See [Known limitations](#known-limitations-v1) for what that tradeoff actually costs you.
