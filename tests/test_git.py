@@ -3,7 +3,7 @@ import subprocess
 import pytest
 
 from open_coding_agent.tools import git
-from open_coding_agent.tools.fs import ToolError
+from open_coding_agent.tools.errors import ToolError
 
 
 def test_git_status_clean(repo):

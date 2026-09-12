@@ -58,7 +58,7 @@ def test_grep_respects_max_results(project):
 
 
 def test_missing_directory_raises(project):
-    from open_coding_agent.tools.fs import ToolError
+    from open_coding_agent.tools.errors import ToolError
 
     with pytest.raises(ToolError):
         search_files(str(project), path="nonexistent")

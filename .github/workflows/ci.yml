@@ -8,7 +8,12 @@ on:
 
 jobs:
   lint-and-test:
-    runs-on: ubuntu-latest
+    # Windows is the primary target (the exe, junction/CRLF handling); Ubuntu
+    # keeps the source install honest on macOS/Linux.
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4

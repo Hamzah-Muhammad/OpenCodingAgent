@@ -1,6 +1,7 @@
 import subprocess
 
-from open_coding_agent.tools.fs import ToolError, assert_allowed_root
+from open_coding_agent.tools.errors import ToolError
+from open_coding_agent.tools.fs import assert_allowed_root
 
 # OpenCodingAgent never pushes directly to these -- hard-coded, not
 # user-configurable from a tool call. Push to a feature branch and open a

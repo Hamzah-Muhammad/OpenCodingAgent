@@ -2,7 +2,7 @@ import io
 
 from rich.console import Console
 
-from open_coding_agent.ui import stream_assistant
+from open_coding_agent.agent import _call_model
 
 
 def _console():
@@ -47,31 +47,29 @@ class _ToolOnlyClient:
         )
 
 
-def test_stream_assistant_returns_final_done_payload():
+def test_call_model_returns_final_done_payload():
     console = _console()
 
-    result = stream_assistant(
-        console, _TextClient(), [{"role": "user", "content": "hi"}], None, None
-    )
+    result = _call_model(console, _TextClient(), [{"role": "user", "content": "hi"}], None)
 
     assert result["message"]["content"] == "Hello"
     assert result["finish_reason"] == "stop"
     assert result["usage"] == {"input_tokens": 5, "output_tokens": 2}
 
 
-def test_stream_assistant_renders_accumulated_text():
+def test_call_model_renders_accumulated_text():
     console = _console()
 
-    stream_assistant(console, _TextClient(), [{"role": "user", "content": "hi"}], None, None)
+    _call_model(console, _TextClient(), [{"role": "user", "content": "hi"}], None)
 
     assert "Hello" in console.file.getvalue()
 
 
-def test_stream_assistant_no_panel_for_tool_only_turn():
+def test_call_model_no_panel_for_tool_only_turn():
     console = _console()
 
-    result = stream_assistant(
-        console, _ToolOnlyClient(), [{"role": "user", "content": "list files"}], None, None
+    result = _call_model(
+        console, _ToolOnlyClient(), [{"role": "user", "content": "list files"}], None
     )
 
     assert result["message"]["tool_calls"][0]["function"]["name"] == "list_dir"

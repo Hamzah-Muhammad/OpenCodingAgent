@@ -1,5 +1,5 @@
 from open_coding_agent.tools import fs, git, github, search, shell
-from open_coding_agent.tools.fs import ToolError
+from open_coding_agent.tools.errors import ToolError
 from open_coding_agent.tools.schemas import DANGER_CLASS, TOOL_SCHEMAS
 
 # name -> executor(root, **kwargs) -> str

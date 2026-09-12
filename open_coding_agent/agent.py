@@ -5,8 +5,8 @@ from rich.console import Console
 from open_coding_agent import ui
 from open_coding_agent.compaction import compact, should_compact
 from open_coding_agent.config import Config
-from open_coding_agent.memory import load_system_prompt
 from open_coding_agent.nvidia_client import NvidiaClient, NvidiaError
+from open_coding_agent.prompt import load_system_prompt
 from open_coding_agent.safety import AutoApprove, SessionQuit, confirm_action
 from open_coding_agent.tools import DANGER_CLASS, EXECUTORS, PREVIEWS, TOOL_SCHEMAS, ToolError
 
@@ -49,6 +49,25 @@ def _execute_tool(console: Console, cfg: Config, auto: AutoApprove, name: str, a
 
     ui.print_tool_result(console, result)
     return result
+
+
+def _call_model(console: Console, client: NvidiaClient, messages: list[dict], model: str) -> dict:
+    """The one place the model is called. Sends the whole conversation plus
+    the tool schemas, streams the reply so text renders as it arrives, and
+    returns the final result in the same shape client.turn() gives
+    non-streamed: {"message", "finish_reason", "usage"}. Raises NvidiaError;
+    the loop decides what to do about it."""
+    final = None
+    with ui.StreamRenderer(console) as renderer:
+        for event_type, payload in client.turn_stream(
+            messages, tools=TOOL_SCHEMAS, tool_choice="auto", model=model
+        ):
+            renderer.on_event()
+            if event_type == "text":
+                renderer.on_text(payload)
+            elif event_type == "done":
+                final = payload
+    return final
 
 
 def _accumulate_usage(session_usage: dict, usage: dict | None) -> None:
@@ -101,7 +120,7 @@ def _run_tool_loop(
             return
 
         try:
-            result = ui.stream_assistant(console, client, messages, TOOL_SCHEMAS, cfg.model)
+            result = _call_model(console, client, messages, cfg.model)
         except NvidiaError as e:
             ui.print_error(console, str(e))
             _rollback_to_last_user(messages)

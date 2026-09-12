@@ -8,7 +8,8 @@ import fnmatch
 import os
 import re
 
-from open_coding_agent.tools.fs import ToolError, _resolve, is_secret_path
+from open_coding_agent.tools.errors import ToolError
+from open_coding_agent.tools.fs import _resolve, is_secret_path
 
 MAX_RESULTS = 50
 MAX_FILE_BYTES = 1_000_000  # skip anything this big -- almost certainly not source
