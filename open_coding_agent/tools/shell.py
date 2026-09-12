@@ -1,7 +1,8 @@
 import os
 import subprocess
 
-from open_coding_agent.tools.fs import ToolError, _resolve, assert_allowed_root
+from open_coding_agent.tools.errors import ToolError
+from open_coding_agent.tools.fs import _resolve, assert_allowed_root
 
 MAX_OUTPUT_CHARS = 4000
 

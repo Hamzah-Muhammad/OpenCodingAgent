@@ -8,7 +8,8 @@ with a token to manage.
 
 import subprocess
 
-from open_coding_agent.tools.fs import ToolError, assert_allowed_root
+from open_coding_agent.tools.errors import ToolError
+from open_coding_agent.tools.fs import assert_allowed_root
 from open_coding_agent.tools.git import _PROTECTED_BRANCHES, _current_branch, _run_git
 
 

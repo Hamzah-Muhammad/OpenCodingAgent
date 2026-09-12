@@ -2,11 +2,7 @@ import difflib
 import fnmatch
 import os
 
-
-class ToolError(Exception):
-    """Raised for a tool-usage error; the message is fed back to the model
-    as the tool result so it can adapt, instead of crashing the session."""
-
+from open_coding_agent.tools.errors import ToolError
 
 # Files whose contents must never enter the conversation: they would be sent
 # to a third-party model and land in its logs. Matched on the basename, so the

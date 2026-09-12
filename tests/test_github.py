@@ -3,7 +3,7 @@ import subprocess
 import pytest
 
 from open_coding_agent.tools import git, github
-from open_coding_agent.tools.fs import ToolError
+from open_coding_agent.tools.errors import ToolError
 
 
 def test_refuses_on_main(repo, bare_remote):

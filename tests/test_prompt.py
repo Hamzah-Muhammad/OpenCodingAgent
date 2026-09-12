@@ -1,4 +1,4 @@
-from open_coding_agent.memory import load_system_prompt
+from open_coding_agent.prompt import load_system_prompt
 
 
 def test_load_system_prompt_returns_nonempty_text():

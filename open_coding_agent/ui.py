@@ -38,57 +38,57 @@ def _response_panel(text: str) -> Panel:
     )
 
 
-def stream_assistant(console: Console, client, messages: list[dict], tools, model) -> dict:
-    """Drives client.turn_stream(), live-updating a panel as text arrives
-    instead of waiting for the whole response. Returns the final "done"
-    event's payload -- identical shape to what client.turn() returns
-    non-streamed, so callers don't need to know streaming happened at all.
-    Raises whatever turn_stream() raises (NvidiaError) -- caller's
-    responsibility to catch it, same as the non-streaming call.
+class StreamRenderer:
+    """Renders one streamed assistant turn: a spinner until the first event
+    (so a slow first token does not look like a hang), a live panel that
+    updates as text arrives, and the finished panel once the turn is over.
 
-    If the turn produced no visible text at all (a pure tool-calling round
-    trip with nothing said beforehand), no panel is shown -- same as the
-    non-streaming behavior for a tool-only turn."""
-    accumulated = []
-    final = None
+    It never touches the client. agent._call_model() drives the model and
+    feeds text fragments in here, so the UI is a subscriber to the turn, not
+    the thing that runs it: the loop can be driven headless with no renderer
+    at all, and the model call has exactly one owner.
 
-    # A spinner while the model is still thinking, so a slow first token does
-    # not look like a hang. Only on a real terminal: through a pipe the frames
-    # are noise, and on a legacy code page they raise encoding errors.
-    status = None
-    if console.is_terminal:
-        status = console.status("[dim]thinking...[/dim]", spinner="dots")
-        status.start()
+    If the turn produced no visible text (a pure tool-calling round trip with
+    nothing said first), no panel is shown -- a titled box with nothing in it
+    would just be noise between tool calls."""
 
-    live = None
-    try:
-        for event_type, payload in client.turn_stream(
-            messages, tools=tools, tool_choice="auto", model=model
-        ):
-            if status is not None:
-                status.stop()
-                status = None
-            if event_type == "text":
-                accumulated.append(payload)
-                if live is None:
-                    live = Live(console=console, refresh_per_second=12, transient=True)
-                    live.start()
-                live.update(_response_panel("".join(accumulated)))
-            elif event_type == "done":
-                final = payload
-    finally:
-        if status is not None:
-            status.stop()
-        if live is not None:
-            live.stop()
+    def __init__(self, console: Console):
+        self._console = console
+        self._parts: list[str] = []
+        self._status = None
+        self._live = None
 
-    # Whitespace-only output still counts as "text arrived" and would draw an
-    # empty green panel between tool calls -- a titled box with nothing in it.
-    joined = "".join(accumulated)
-    if joined.strip():
-        console.print(_response_panel(joined))
+    def __enter__(self):
+        # Only on a real terminal: through a pipe the spinner frames are
+        # noise, and on a legacy code page they raise encoding errors.
+        if self._console.is_terminal:
+            self._status = self._console.status("[dim]thinking...[/dim]", spinner="dots")
+            self._status.start()
+        return self
 
-    return final
+    def on_event(self) -> None:
+        """Any event from the stream means the model has started answering."""
+        if self._status is not None:
+            self._status.stop()
+            self._status = None
+
+    def on_text(self, fragment: str) -> None:
+        self._parts.append(fragment)
+        if self._live is None:
+            self._live = Live(console=self._console, refresh_per_second=12, transient=True)
+            self._live.start()
+        self._live.update(_response_panel("".join(self._parts)))
+
+    def __exit__(self, *exc) -> None:
+        if self._status is not None:
+            self._status.stop()
+        if self._live is not None:
+            self._live.stop()
+        # Whitespace-only output still counts as "text arrived" and would draw
+        # an empty green panel between tool calls.
+        joined = "".join(self._parts)
+        if joined.strip():
+            self._console.print(_response_panel(joined))
 
 
 # Arguments worth showing inline for each tool, in display order. Anything not
