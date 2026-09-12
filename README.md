@@ -9,16 +9,20 @@
 
 ## What this project demonstrates
 
-This repo exists to show how I build agents and coding tools. A working agent is a model plus four things the harness gives it, and every one of them here is a deliberate, tested decision rather than a framework default:
+An agent is six blocks. Here is each one in this repo, and where to read it:
 
-| Pillar | What it means in OpenCodingAgent | Where |
+| Block | In OpenCodingAgent | Where |
 |---|---|---|
-| **Tools** | 12 tools with tight JSON schemas, each classified `safe` (auto-runs) or `risky` (diff/command preview + `y`/`a`/`q`). Guardrails live *inside* the tool, not in the prompt: no branch/force parameter on `git_push`, refusal on `main`, sandbox-by-name and secrets refusal at the boundary, cross-platform path normalisation. Every tool failure comes back to the model as a readable result so it can adapt instead of crashing the session. | `tools/schemas.py`, `tools/*.py`, `safety.py`, `agent.py` |
-| **System prompt** | Short and model-aware: written for a free, smaller model and a narrow terminal (tool discipline, `edit_file` over overwrites, no re-reads, checkpoint before the turn cap, honest about what it is). Loaded once from a flat file and bundled into the exe; a tiered prompt was considered and rejected as unnecessary at this size, which is itself the point. | `SYSTEM_PROMPT.md`, `memory.py` |
-| **Context window** | Streaming with per-turn and per-session token accounting so the cost of every turn is visible. A 25-round-trip cap per message. Automatic compaction after 40 messages into a durable-facts summary that keeps the last 10 messages verbatim and never cuts between a tool call and its result. Tool output is bounded (shell 4,000 chars, search 50 hits, files over 1 MB skipped) and hidden reasoning is off by default so the output budget is not burned invisibly. | `compaction.py`, `ui.py`, `tools/shell.py`, `tools/search.py`, `nvidia_client.py` |
-| **Memory** | Three layers, each with one job: durable identity and rules (`SYSTEM_PROMPT.md`, cached for the session), the conversation itself (rolled back to the last user turn on any failure so it can never hold an orphaned tool call), and the compaction summary, which is the agent's long-session memory of decisions made, files touched, and what is still open. | `memory.py`, `agent.py`, `compaction.py` |
+| **Model** | DeepSeek V4 on NVIDIA's free tier. Not in the repo: the code holds a model name and calls it with the `openai` SDK pointed at NVIDIA's OpenAI-compatible endpoint. Hidden reasoning is switched off per request so the tool loop stays fast. `/model` swaps the name mid-session. | `nvidia_client.py`, `config.py` |
+| **Tools** | 12 tools with JSON schemas, each `safe` (auto-runs) or `risky` (preview + `y`/`a`/`q`). Guardrails are inside the tool, not the prompt: no branch or force parameter on `git_push`, refusal on `main`, sandbox-by-name and secrets refusal at the boundary. Tool failures go back to the model as text so it can adapt. A test pins schemas, executors, danger classes and previews to the same names. | `tools/`, `safety.py`, `tests/test_tools_registry.py` |
+| **System prompt** | One short file, written for a small free model: tool discipline, `edit_file` over overwrites, no re-reads, checkpoint before the turn cap, honest about what it is. | `SYSTEM_PROMPT.md`, `prompt.py` |
+| **Context window** | Streaming with per-turn and per-session token counts. 25 round trips per message. Compaction after 40 messages (last 10 kept verbatim, never cut between a tool call and its result). Tool output bounded: shell 4,000 chars, search 50 hits, files over 1 MB skipped. | `compaction.py`, `ui.py`, `tools/shell.py`, `tools/search.py` |
+| **Memory** | The model remembers nothing between requests; the `messages` list is its only memory and this code owns it. Three layers: the system prompt (message 0), the conversation (rolled back to the last user turn on any failure so it never holds an orphaned tool call), and the compaction summary. | `agent.py`, `compaction.py` |
+| **Orchestration** | The loop, written by hand: call the model, run the tools it asked for, append the results, call again until it stops asking or hits the cap. One function owns the model call (`_call_model`), one owns tool dispatch and approval (`_execute_tool`), the UI only renders. No agent framework. | `agent.py` |
 
-The same four decisions are what separate a demo that calls an LLM from a tool you can hand a real repo to. The rest of this README is the operator's view of those decisions.
+[How this agent was made](#how-this-agent-was-made) shows the loop and the model call. The rest of this README is the operator's view.
+
+Related: [Ticket2PR](https://github.com/Hamzah-Muhammad/Ticket2PR) is the same idea built on the Claude Agent SDK, where the SDK supplies the model access, tools and loop. Here every block is written out.
 
 ## Why free
 
@@ -118,7 +122,7 @@ Responses render live instead of waiting for the whole thing -- text shows up as
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements-dev.txt
 .venv\Scripts\python -m pip install -e .
-.venv\Scripts\python -m open_coding_agent --root path	o\OpenCodingAgentRepo
+.venv\Scripts\python -m open_coding_agent --root path\to\OpenCodingAgentRepo
 ```
 
 CLI flags (`--model`, `--api-key`, `--root`, `--thinking`, `--version`) work for direct `python -m open_coding_agent` use, or set them in `.env` (`NVIDIA_API_KEY`, `OPENCODINGAGENT_MODEL`, `OPENCODINGAGENT_THINKING`).
@@ -131,7 +135,101 @@ python -m venv .venv
 .venv\Scripts\python -m PyInstaller OpenCodingAgent.spec --noconfirm
 ```
 
-Onefile build with the embedded icon and version resource (`--add-data` bundles `SYSTEM_PROMPT.md` into the archive -- `memory.py` knows to look for it at `sys._MEIPASS` when frozen). Output: `dist/OpenCodingAgent.exe`. The root-level `OpenCodingAgent.exe` is rebuilt and re-committed whenever app code changes, so it always matches the latest source.
+Onefile build with the embedded icon and version resource (`--add-data` bundles `SYSTEM_PROMPT.md` into the archive -- `prompt.py` knows to look for it at `sys._MEIPASS` when frozen). Output: `dist/OpenCodingAgent.exe`. The root-level `OpenCodingAgent.exe` is rebuilt and re-committed whenever app code changes, so it always matches the latest source.
+
+## How this agent was made
+
+An agent is a program where the model decides what to do next, the program does it, and the two repeat until the job is done. A chatbot answers once. A tool library waits to be called. The agent is the loop between them. Here it is 220 lines in `agent.py`.
+
+### The loop
+
+`agent.py` with error handling and UI calls stripped out:
+
+```python
+messages = [{"role": "system", "content": load_system_prompt()}]
+
+while True:                                            # one iteration per user message
+    messages.append({"role": "user", "content": input("you> ")})
+
+    for _ in range(MAX_TOOL_TURNS):                    # one iteration per model call
+        result = _call_model(console, client, messages, cfg.model)
+        msg = result["message"]
+        messages.append({"role": "assistant", "content": msg["content"],
+                         "tool_calls": msg["tool_calls"]})
+
+        if result["finish_reason"] != "tool_calls":    # answered in prose: done
+            break
+
+        for tc in msg["tool_calls"]:                   # asked for tools: run them
+            args = json.loads(tc["function"]["arguments"])
+            output = _execute_tool(console, cfg, auto, tc["function"]["name"], args)
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": output})
+        # go round again with the tool results in the history
+
+    if should_compact(messages):                       # long session: summarise old turns
+        messages, _usage = compact(client, messages, model=cfg.model)
+```
+
+`_execute_tool` is the approval gate: a `safe` tool runs at once, a `risky` one shows its preview and waits for `y`/`a`/`q`. A declined call goes back to the model as text, not an exception. The model never runs anything; it only asks.
+
+### How the model is called
+
+NVIDIA has no SDK for this. Its endpoint speaks the same format as OpenAI's `/chat/completions` (so do Groq, Cerebras, OpenRouter, Together, Ollama), so the standard `openai` package is the client, pointed at a different server. `nvidia_client.py` reduced to the call:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=NVIDIA_API_KEY)
+
+response = client.chat.completions.create(
+    model="deepseek-ai/deepseek-v4-flash-0731",
+    messages=messages,                    # system prompt + the whole conversation so far
+    tools=TOOL_SCHEMAS,                   # the 12 JSON tool descriptions
+    tool_choice="auto",
+    max_tokens=2048,
+    temperature=0.3,
+    extra_body={"chat_template_kwargs": {"thinking": False}},   # DeepSeek's reasoning switch
+    stream=True,
+)
+```
+
+One HTTPS POST to `https://integrate.api.nvidia.com/v1/chat/completions`, key as a bearer token. `extra_body` passes provider-specific fields through untouched, which is why the `openai` package works as a universal client. The module catches the SDK's connection, timeout and HTTP-status errors and raises one readable `NvidiaError`.
+
+### What one request contains
+
+The model never sees this project's source. Every call sends:
+
+```
+messages[0]  system     SYSTEM_PROMPT.md
+messages[1]  user       "add a --verbose flag to cli.py"
+messages[2]  assistant  tool_calls: [search_files(pattern="argparse")]
+messages[3]  tool       "cli.py:12: parser = argparse.ArgumentParser(...)"
+messages[4]  assistant  tool_calls: [read_file(path="cli.py")]
+messages[5]  tool       <file contents>
+...
+tools        the 12 schemas: name, description, JSON parameters
+```
+
+The reply is prose (`finish_reason: "stop"`) or tool calls (`finish_reason: "tool_calls"`) whose arguments are a JSON string the loop parses. The whole history goes back every time, so input tokens grow with every round trip. The token line, the 25-turn cap and compaction exist to manage that.
+
+### What ships and what the user brings
+
+| In the repo / the exe | Brought by the user |
+| --- | --- |
+| The loop, 12 tools, system prompt, sandbox and safety code, compaction, terminal UI, tests | The model (DeepSeek V4, on NVIDIA's GPUs) |
+| The `openai` package | A free `NVIDIA_API_KEY` from build.nvidia.com |
+| A model name in `config.py` | `git`, and `gh` for `pr_create` |
+
+You ship code and a model name. The model and the key are on the user's side. That is why it runs for $0.
+
+### Build order
+
+1. **Loop and tools.** 12 schemas and executors, the loop above, previews and the `y`/`a`/`q` gate, compaction, a system prompt for a small model. Spun out of a private project that had the same loop behind a backend service; here the client calls NVIDIA directly.
+2. **Package.** PyInstaller onefile with the prompt bundled, so it runs by double-click.
+3. **Lock down before going public.** Sandbox-by-name on the resolved path (junctions, symlinks, cross-drive), secrets refused read and write, CRLF preserved through edits, orphaned-tool-call rollback, and the thinking switch after a live run took 949 seconds with every output token spent on hidden reasoning.
+4. **Structure review.** The UI had grown to own the model call; it moved to `agent._call_model`. A test pins the four tool registries together. `memory.py` became `prompt.py` (it loads the prompt). CI runs on Windows and Ubuntu.
+
+The loop has not changed since step 1. Everything after was the boundary around it.
 
 ## Architecture
 
@@ -166,18 +264,21 @@ open_coding_agent/
   config.py             Env/CLI config loading
   nvidia_client.py       Direct calls to NVIDIA's OpenAI-compatible API (turn/turn_stream)
   compaction.py            Conversation compaction once history grows past 40 messages
-  memory.py                 Loads SYSTEM_PROMPT.md
+  prompt.py                 Loads SYSTEM_PROMPT.md
   safety.py                  Confirmation prompts + auto-approve state
   ui.py                       Rich-based terminal rendering (streaming panel, previews)
   SYSTEM_PROMPT.md              The agent's own system prompt
   tools/
+    errors.py                   ToolError, raised by every tool module
     fs.py                       read_file, list_dir, write_file, edit_file (+ previews)
     search.py                    search_files (grep + glob, one tool for both)
     shell.py                      run_shell
     git.py                         status/diff/commit/checkout/push (+ main/master refusal)
     github.py                       pr_create via the gh CLI
     schemas.py                       Tool-call JSON schemas + safe/risky classification
-tests/                 pytest suite -- fs, search, safety, compaction, git/PR guardrails
+    __init__.py                       Registry: tool name -> executor and preview
+tests/                 pytest suite -- fs, search, safety, compaction, git/PR guardrails, the
+                        tool registry (schemas, executors, danger classes, previews agree),
                         (against real local git repos, not mocks), the NVIDIA client,
                         the sandbox lock (real junctions/symlinks), secrets + line endings
 OpenCodingAgent.spec    PyInstaller onefile packaging spec
